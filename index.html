@@ -1345,18 +1345,32 @@ const ARTS = [
 ];
 
 // FAKE OPPONENTS
-const ENEMIES = [
-  {name:'Артем_М',   lv:2, mu:18,  rt:310},
-  {name:'IronMax99', lv:4, mu:90,  rt:820},
-  {name:'СашаБомба', lv:1, mu:8,   rt:150},
-  {name:'GymRat47',  lv:6, mu:310, rt:1450},
-  {name:'Качок_UA',  lv:3, mu:45,  rt:640},
-  {name:'Viktor_G',  lv:5, mu:180, rt:1050},
-  {name:'NightBull', lv:7, mu:750, rt:2600},
-  {name:'AndriyFit', lv:1, mu:5,   rt:120},
-  {name:'MuscleKing',lv:9, mu:2400,rt:4100},
-  {name:'Олег_П',    lv:4, mu:110, rt:900},
-];
+// Реальні гравці завантажуються з сервера
+let ENEMIES = []; // порожньо — тільки реальні гравці з Supabase
+let _serverPlayers = []; // кеш гравців з сервера
+
+// Завантажити реальних гравців з сервера
+async function loadRealPlayers(){
+  try{
+    const r = await fetch(SERVER_URL+'/api/leaderboard', {signal:AbortSignal.timeout(5000)});
+    if(r.ok){
+      const data = await r.json();
+      _serverPlayers = (data||[])
+        .filter(p => p.id !== getTgId()) // виключаємо себе
+        .map(p => ({
+          name: p.name||'Гравець',
+          lv:   parseInt(p.lv)||0,
+          mu:   parseFloat(p.mu)||0,
+          rt:   parseInt(p.rt)||0,
+        }));
+      ENEMIES = _serverPlayers;
+      console.log('[Players] Loaded', ENEMIES.length, 'real players');
+    }
+  }catch(e){
+    console.warn('[Players] Could not load:', e.message);
+    ENEMIES = [];
+  }
+}
 
 // ─────────────────────────────────
 // STATE
@@ -1463,7 +1477,10 @@ function addExpAndCheck(amount){
 }
 
 function getEnemy(){
-  // Match by closest rating to player — real backend will do this via API
+  if(ENEMIES.length === 0){
+    // Немає реальних гравців — показуємо заглушку
+    return {name:'Суперник', lv:Math.max(1,G.lv), mu:Math.max(10,G.mu*0.8), rt:Math.max(0,G.rt-50)};
+  }
   const sorted=[...ENEMIES].sort((a,b)=>Math.abs(a.rt-G.rt)-Math.abs(b.rt-G.rt));
   return sorted[0];
 }
@@ -2250,11 +2267,8 @@ function renderQuests(){
 // ════════════════════════════════════════
 // CLANS SYSTEM
 // ════════════════════════════════════════
-const FAKE_CLANS=[
-  {name:'ЗАЛІЗНІ КУЛАКИ',tag:'ЗК',members:12,power:8450,leader:'IronMax99'},
-  {name:'СТАЛЕВІ ВОЇНИ', tag:'СВ',members:8, power:5200,leader:'Viktor_G'},
-  {name:'БЕРСЕРКИ',       tag:'БР',members:23,power:15600,leader:'NightBull'},
-];
+// Клани завантажуються з сервера
+let FAKE_CLANS = [];
 
 function renderClans(){
   const body=document.getElementById('clans-body');
@@ -2351,8 +2365,8 @@ function getWeekTimeLeft(){
 function renderWeek(){
   const tv=document.getElementById('week-timer-val');
   if(tv)tv.textContent=fmt(getWeekTimeLeft());
-  const all=[...ENEMIES.map(e=>({...e,wrt:e.rt*0.3+Math.random()*200})),
-    {name:'ВИ',lv:G.lv,mu:Math.floor(G.mu),rt:G.rt,wrt:G.weekRt,isMe:true}];
+  const me={name:getPlayerName()||'ВИ',lv:G.lv,mu:Math.floor(G.mu),rt:G.rt,wrt:G.weekRt||0,isMe:true};
+  const all=[...ENEMIES.map(e=>({...e,wrt:e.wrt||e.rt||0})), me];
   all.sort((a,b)=>b.wrt-a.wrt);
   const medals=['🥇','🥈','🥉'];const cls=['g','s','b'];
   document.getElementById('week-lb').innerHTML=all.slice(0,8).map((p,i)=>`
@@ -2857,6 +2871,8 @@ async function initServerSync(){
     setTimeout(()=>loading.remove(), 400);
   }, 800);
 
+  // Завантажуємо реальних гравців з сервера
+  await loadRealPlayers();
   // Connect WebSocket for chat (pass name and userId)
   connectChat();
 
