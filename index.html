@@ -2332,7 +2332,7 @@ function renderRef(){
 }
 
 function copyRef(){
-  const link=`https://t.me/KachokBot?start=${G.refCode}`;
+  const link=`https://t.me/GameKacok_bot?start=${G.refCode}`;
   if(navigator.clipboard){navigator.clipboard.writeText(link);}
   toast('📋 Посилання скопійовано!','ok');
 }
@@ -2670,34 +2670,33 @@ async function loadFromServer(userId){
     const data = await r.json();
     if(!data || !data.id) return false;
 
-    // Merge server data with local — take the HIGHER values
-    const serverMu    = parseFloat(data.mu)    || 0;
-    const serverCoins = parseFloat(data.coins) || 0;
-    const serverRt    = parseInt(data.rt)      || 0;
-    const serverLv    = parseInt(data.lv)      || 0;
-    const serverWins  = parseInt(data.wins)    || 0;
-    const serverGems  = parseInt(data.gems)    || 0;
+      // ── ПОВНЕ завантаження з сервера (сервер = головне джерело) ──
+    G.mu    = Math.max(parseFloat(data.mu)||0,    G.mu);
+    G.coins = Math.max(parseFloat(data.coins)||0, G.coins);
+    G.rt    = Math.max(parseInt(data.rt)||0,      G.rt);
+    G.lv    = Math.max(parseInt(data.lv)||0,      G.lv);
+    G.wins  = Math.max(parseInt(data.wins)||0,    G.wins);
+    G.losses= Math.max(parseInt(data.losses)||0,  G.losses);
+    G.gems  = Math.max(parseInt(data.gems)||0,    G.gems);
+    G.hp    = Math.max(parseInt(data.hp)||100,    G.hp);
 
-    // Use server data if higher (prevents cheating via localStorage)
-    if(serverMu    > G.mu)    G.mu    = serverMu;
-    if(serverCoins > G.coins) G.coins = serverCoins;
-    if(serverRt    > G.rt)    G.rt    = serverRt;
-    if(serverLv    > G.lv)    G.lv    = serverLv;
-    if(serverWins  > G.wins)  G.wins  = serverWins;
-    if(serverGems  > G.gems)  G.gems  = serverGems;
+    // Завжди беремо з сервера
+    G.dailyStreak = Math.max(parseInt(data.daily_streak)||0, G.dailyStreak);
+    G.lastDaily   = Math.max(parseInt(data.last_daily)||0,   G.lastDaily);
+    G.cdFI        = Math.max(parseInt(data.last_fight)||0,   G.cdFI);
+    G.trainCount  = Math.max(parseInt(data.train_count)||0,  G.trainCount||0);
+    G.refCount    = Math.max(parseInt(data.ref_count)||0,    G.refCount||0);
+    G.weekRt      = Math.max(parseInt(data.week_rt)||0,      G.weekRt||0);
 
-    // Always sync these from server
-    if(data.daily_streak > G.dailyStreak) G.dailyStreak = parseInt(data.daily_streak)||0;
-    if(data.last_daily   > G.lastDaily)   G.lastDaily   = parseInt(data.last_daily)||0;
-    if(data.last_fight   > G.cdFI)        G.cdFI        = parseInt(data.last_fight)||0;
-    if(data.train_count  > G.trainCount)  G.trainCount  = parseInt(data.train_count)||0;
-    if(data.ref_count    > G.refCount)    G.refCount    = parseInt(data.ref_count)||0;
-
-    // Skin
+    // Скін
     if(data.skin && data.skin !== 'default') G.skin = data.skin;
+    
+    // Exp перераховуємо на основі рівня якщо нема
+    if(!G.exp && G.lv > 0) G.exp = 0;
 
     save();
-    console.log('[Sync] Loaded from server:', data.name, 'Lv:', data.lv, 'Mu:', data.mu);
+    console.log('[Sync] ✅ Loaded:', data.name, 'Lv:', data.lv, 'Mu:', data.mu, 'Coins:', data.coins);
+    toast('✅ Прогрес завантажено з сервера!', 'ok');
     return true;
   } catch(e){
     console.warn('[Sync] Could not load from server:', e.message);
@@ -2763,16 +2762,21 @@ async function initServerSync(){
   loading.innerHTML = `
     <div style="font-size:48px;animation:pulse 1s infinite">💪</div>
     <div style="font-family:'Bebas Neue';font-size:28px;letter-spacing:3px;color:#00E5FF">КАЧОК 2026</div>
-    <div style="font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:1px">Завантаження даних...</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:1px" id="sync-status">Завантаження даних...</div>
     <div style="width:200px;height:4px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
       <div style="height:100%;width:60%;background:linear-gradient(90deg,#00E5FF,#0088FF);border-radius:4px;animation:shine 1s infinite"></div>
     </div>
   `;
   document.body.appendChild(loading);
 
+  // Show userId for debug
+  const statusEl = document.getElementById('sync-status');
+  if(statusEl) statusEl.textContent = 'ID: ' + userId + ' | ' + name;
+
   // Try to load from server
-  if(userId && userId !== 'guest'){
-    await loadFromServer(userId);
+  if(userId){
+    const loaded = await loadFromServer(userId);
+    if(statusEl) statusEl.textContent = loaded ? '✅ Дані завантажено!' : '📱 Новий гравець';
   }
 
   // Remove loading screen
