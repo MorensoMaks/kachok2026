@@ -2578,14 +2578,20 @@ function renderChatMessages(tab){
   const inp = document.getElementById('clan-input-wrap');
   if(inp) inp.style.display='flex';
 
+  const myId   = getTgId();
   const myName = getPlayerName();
   container.innerHTML = msgs.map(m => {
-    const isMe = m.user === myName;
+    // Визначаємо чи це моє повідомлення по userId АБО імені
+    const msgUserId = m.user_id || m.userId || '';
+    const msgName   = m.user_name || m.user || m.name || '';
+    const isMe = (msgUserId && msgUserId === myId) || msgName === myName;
     const timeStr = m.time || formatTime(m.ts);
+    const displayName = isMe ? 'Ви' : (msgName || 'Гравець');
+    const lv = m.user_lv || m.lv || 0;
     return `<div class="msg-bubble ${isMe?'me':''}">
-      <div class="msg-avatar">${m.avatar||'🧍'}</div>
+      <div class="msg-avatar">${m.avatar||'💪'}</div>
       <div class="msg-content">
-        <div class="msg-name">${isMe?'Ви':m.user} · Рів.${m.lv||G.lv}</div>
+        <div class="msg-name">${displayName}${lv?' · Рів.'+lv:''}</div>
         <div class="msg-text">${escapeHtml(m.text)}</div>
         <div class="msg-time">${timeStr}</div>
       </div>
@@ -2614,12 +2620,14 @@ function sendMessage(tab){
   if(!text || text.length > 300) return;
 
   const msg = {
-    user: getPlayerName(),
-    lv: G.lv,
-    text: text,
-    time: formatTime(Date.now()),
-    ts: Date.now(),
-    avatar: ['💪','🏋️','⚡','🔥','🥊','👊','💎'][G.lv%7],
+    user_id:   getTgId(),
+    user_name: getPlayerName(),
+    user:      getPlayerName(),
+    lv:        G.lv,
+    text:      text,
+    time:      formatTime(Date.now()),
+    ts:        Date.now(),
+    avatar:    ['💪','🏋️','⚡','🔥','🥊','👊','💎'][G.lv%7],
   };
 
   // Add to local array (will be replaced by server broadcast)
@@ -2628,7 +2636,16 @@ function sendMessage(tab){
 
   // Send to WebSocket server if connected
   if(chatWS && chatWS.readyState === WebSocket.OPEN){
-    chatWS.send(JSON.stringify({type:'message', tab, text, name: msg.user, lv: G.lv}));
+    chatWS.send(JSON.stringify({
+      type:'message', 
+      room: tab,
+      text, 
+      user_id:   getTgId(),
+      user_name: getPlayerName(),
+      name:      getPlayerName(),
+      lv:        G.lv,
+      avatar:    msg.avatar,
+    }));
   }
 
   input.value = '';
@@ -2639,9 +2656,14 @@ function sendMessage(tab){
 // ── Receive from server ──
 function loadChatHistory(msg){
   const room = msg.room || 'global';
-  const msgs = msg.messages || [];
+  const msgs = (msg.messages || []).map(m => ({
+    ...m,
+    user_id:   m.user_id   || m.userId || '',
+    user_name: m.user_name || m.name   || m.user || 'Гравець',
+    user:      m.user_name || m.name   || m.user || 'Гравець',
+    user_lv:   m.user_lv   || m.lv     || 0,
+  }));
   if(room === 'global'){
-    // Merge with demo, keep server messages
     globalMsgs = msgs.length > 0 ? msgs : globalMsgs;
   } else if(room.startsWith('clan_')){
     clanMsgs = msgs.length > 0 ? msgs : clanMsgs;
@@ -2652,7 +2674,12 @@ function loadChatHistory(msg){
 }
 
 function receiveChatMsg(msg){
-  const arr = msg.tab==='global' ? globalMsgs : clanMsgs;
+  // Normalize fields from server
+  msg.user_id   = msg.user_id   || msg.userId || '';
+  msg.user_name = msg.user_name || msg.name   || msg.user || 'Гравець';
+  msg.user      = msg.user_name;
+  msg.user_lv   = msg.user_lv   || msg.lv     || 0;
+  const arr = msg.room==='global' ? globalMsgs : clanMsgs;
   arr.push(msg);
   // Keep last 100 messages
   if(arr.length > 100) arr.shift();
