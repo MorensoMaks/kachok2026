@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=390px,initial-scale=1.0">
 <title>КАЧОК 2026</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Orbitron:wght@700;900&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -2454,15 +2455,36 @@ function connectChat(){
 }
 
 function getTgId(){
-  try{ return window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'guest'; }
-  catch(e){ return 'guest'; }
+  try{
+    // Initialize Telegram WebApp
+    if(window.Telegram?.WebApp){
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+    const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    if(id) return String(id);
+    // Fallback: use stored ID or generate one
+    let storedId = localStorage.getItem('kachok_uid');
+    if(!storedId){
+      storedId = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+      localStorage.setItem('kachok_uid', storedId);
+    }
+    return storedId;
+  }catch(e){
+    return 'guest_'+Math.random().toString(36).slice(2,7);
+  }
 }
 
 function getPlayerName(){
   try{
     const u = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    return u ? (u.first_name || u.username || 'Гравець') : 'Гравець_'+Math.floor(Math.random()*1000);
-  }catch(e){ return 'Гравець'; }
+    if(u){
+      const name = u.first_name || u.username || 'Гравець';
+      localStorage.setItem('kachok_name', name);
+      return name;
+    }
+    return localStorage.getItem('kachok_name') || 'Гравець_'+Math.floor(Math.random()*1000);
+  }catch(e){ return localStorage.getItem('kachok_name') || 'Гравець'; }
 }
 
 function updateOnline(count){
