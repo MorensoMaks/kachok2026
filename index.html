@@ -2626,6 +2626,170 @@ function openChat(){
   connectChat();
 }
 
+
+// ════════════════════════════════════════
+// SERVER SYNC SYSTEM
+// ════════════════════════════════════════
+
+const SERVER_URL = 'https://kachok-server-production.up.railway.app';
+let syncInProgress = false;
+let lastServerSync = 0;
+
+// ── Load player data from server ──
+async function loadFromServer(userId){
+  if(!userId || userId === 'guest') return false;
+  try{
+    const r = await fetch(`${SERVER_URL}/api/player/${userId}`, {
+      method: 'GET',
+      headers: {'Content-Type':'application/json'},
+      signal: AbortSignal.timeout(5000)
+    });
+    if(!r.ok) return false;
+    const data = await r.json();
+    if(!data || !data.id) return false;
+
+    // Merge server data with local — take the HIGHER values
+    const serverMu    = parseFloat(data.mu)    || 0;
+    const serverCoins = parseFloat(data.coins) || 0;
+    const serverRt    = parseInt(data.rt)      || 0;
+    const serverLv    = parseInt(data.lv)      || 0;
+    const serverWins  = parseInt(data.wins)    || 0;
+    const serverGems  = parseInt(data.gems)    || 0;
+
+    // Use server data if higher (prevents cheating via localStorage)
+    if(serverMu    > G.mu)    G.mu    = serverMu;
+    if(serverCoins > G.coins) G.coins = serverCoins;
+    if(serverRt    > G.rt)    G.rt    = serverRt;
+    if(serverLv    > G.lv)    G.lv    = serverLv;
+    if(serverWins  > G.wins)  G.wins  = serverWins;
+    if(serverGems  > G.gems)  G.gems  = serverGems;
+
+    // Always sync these from server
+    if(data.daily_streak > G.dailyStreak) G.dailyStreak = parseInt(data.daily_streak)||0;
+    if(data.last_daily   > G.lastDaily)   G.lastDaily   = parseInt(data.last_daily)||0;
+    if(data.last_fight   > G.cdFI)        G.cdFI        = parseInt(data.last_fight)||0;
+    if(data.train_count  > G.trainCount)  G.trainCount  = parseInt(data.train_count)||0;
+    if(data.ref_count    > G.refCount)    G.refCount    = parseInt(data.ref_count)||0;
+
+    // Skin
+    if(data.skin && data.skin !== 'default') G.skin = data.skin;
+
+    save();
+    console.log('[Sync] Loaded from server:', data.name, 'Lv:', data.lv, 'Mu:', data.mu);
+    return true;
+  } catch(e){
+    console.warn('[Sync] Could not load from server:', e.message);
+    return false;
+  }
+}
+
+// ── Save player data to server ──
+async function saveToServer(){
+  if(syncInProgress) return;
+  const userId = getTgId();
+  if(!userId || userId === 'guest') return;
+
+  syncInProgress = true;
+  try{
+    await fetch(`${SERVER_URL}/api/player`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        userId,
+        name:        getPlayerName(),
+        lv:          G.lv,
+        mu:          Math.floor(G.mu),
+        en:          Math.floor(G.en),
+        hp:          G.hp,
+        coins:       Math.floor(G.coins),
+        gems:        G.gems,
+        rt:          G.rt,
+        weekRt:      G.weekRt||0,
+        wins:        G.wins,
+        losses:      G.losses,
+        skin:        G.skin,
+        trainCount:  G.trainCount||0,
+        dailyStreak: G.dailyStreak||0,
+        lastDaily:   G.lastDaily||0,
+        refCode:     G.refCode||'',
+        refCount:    G.refCount||0,
+        lastFight:   G.cdFI||0,
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+    lastServerSync = Date.now();
+    console.log('[Sync] Saved to server');
+  } catch(e){
+    console.warn('[Sync] Could not save to server:', e.message);
+  } finally{
+    syncInProgress = false;
+  }
+}
+
+// ── Init sync on game start ──
+async function initServerSync(){
+  const userId = getTgId();
+  const name   = getPlayerName();
+
+  // Show loading indicator
+  const loading = document.createElement('div');
+  loading.id = 'sync-loading';
+  loading.style.cssText = `
+    position:fixed;inset:0;z-index:500;background:rgba(8,12,24,0.95);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  `;
+  loading.innerHTML = `
+    <div style="font-size:48px;animation:pulse 1s infinite">💪</div>
+    <div style="font-family:'Bebas Neue';font-size:28px;letter-spacing:3px;color:#00E5FF">КАЧОК 2026</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:1px">Завантаження даних...</div>
+    <div style="width:200px;height:4px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:60%;background:linear-gradient(90deg,#00E5FF,#0088FF);border-radius:4px;animation:shine 1s infinite"></div>
+    </div>
+  `;
+  document.body.appendChild(loading);
+
+  // Try to load from server
+  if(userId && userId !== 'guest'){
+    await loadFromServer(userId);
+  }
+
+  // Remove loading screen
+  setTimeout(()=>{
+    loading.style.opacity = '0';
+    loading.style.transition = 'opacity 0.4s';
+    setTimeout(()=>loading.remove(), 400);
+  }, 800);
+
+  // Connect WebSocket for chat (pass name and userId)
+  connectChat();
+
+  // Auto-save every 30 seconds
+  setInterval(()=>{
+    if(Date.now() - lastServerSync > 25000){
+      saveToServer();
+    }
+  }, 30000);
+
+  // Save after important actions
+  calcEff();
+  checkWeekReset();
+  initQuests();
+  checkAchievements();
+  renderHome();
+
+  const _canDaily = isDifferentDay(G.lastDaily)||G.lastDaily===0;
+  const _moredot  = document.getElementById('more-dot');
+  if(_moredot) _moredot.className='nav-dot'+(_canDaily?' on':'');
+}
+
+// ── Server REST API call ──
+async function serverGet(path){
+  try{
+    const r = await fetch(SERVER_URL + path, {signal: AbortSignal.timeout(5000)});
+    return r.ok ? await r.json() : null;
+  }catch(e){ return null; }
+}
+
 // ─────────────────────────────────
 // TICK
 // ─────────────────────────────────
@@ -2634,11 +2798,7 @@ setInterval(()=>{
   save();
   updateDailyTimer();
 },1000);
-calcEff(); checkWeekReset(); initQuests(); checkAchievements(); renderHome();
-// More dot
-const _canDaily=isDifferentDay(G.lastDaily)||G.lastDaily===0;
-const _moredot=document.getElementById('more-dot');
-if(_moredot)_moredot.className='nav-dot'+(_canDaily?' on':'');
+initServerSync();
 </script>
 </body>
 </html>
